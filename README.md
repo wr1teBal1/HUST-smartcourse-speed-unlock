@@ -20,7 +20,7 @@ Chrome / Edge 扩展（Manifest V3），解除 **HUST 智慧课程平台**（`sm
 2. 打开右上角（Edge 为左下角）的 **开发者模式 / 开发人员模式** 开关。
 3. 点击 **加载已解压的扩展程序**（Edge：**加载解压缩的扩展**）。
 4. 选择本仓库**根目录**（即包含 `manifest.json` 的那一层，**不要**选中里面的 `src` 或 `popup` 子目录）：
-   - 从 GitHub 安装：点仓库右上角 **Code → Download ZIP**，解压后选择解压出的文件夹（如 `HUST-smartcourse--speed-unlock-main`）；
+   - 从 GitHub 安装：点仓库右上角 **Code → Download ZIP**，解压后选择解压出的文件夹（如 `HUST-smartcourse-speed-unlock-main`）；
    - 本地安装：直接选择本项目所在文件夹。
 5. 加载成功后，点击浏览器工具栏的拼图图标 📎，把 **SmartCourse 倍速解锁** 固定到工具栏。
 6. 回到课程视频页面，**刷新一次页面**（安装前已打开的页面不会自动注入），然后点击工具栏图标即可使用。

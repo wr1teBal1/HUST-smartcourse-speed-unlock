@@ -33,7 +33,7 @@
   var MSG = '__SMARTCOURSE_SPEED__';
   var MIN_RATE = 0.25;
   var MAX_RATE = 16;
-  var DEFAULT_CFG = { enabled: true, rate: 2, spoof: true, preservesPitch: true };
+  var DEFAULT_CFG = { enabled: true, rate: 2, spoof: true, preservesPitch: true, safeCap: true };
 
   var state = {
     enabled: DEFAULT_CFG.enabled,
@@ -55,7 +55,8 @@
       enabled: raw.enabled !== false,
       rate: clampRate(raw.rate === undefined || raw.rate === null ? DEFAULT_CFG.rate : raw.rate),
       spoof: raw.spoof !== false,
-      preservesPitch: raw.preservesPitch !== false
+      preservesPitch: raw.preservesPitch !== false,
+      safeCap: raw.safeCap !== false
     };
   }
 
@@ -167,11 +168,41 @@
     post({ source: MSG, type: 'hook-ready' });
   }
 
+  /* 页面内轻提示（用于快捷键把倍速调过 2× 时的“安全上限”提醒） */
+  var toastTimer = null;
+  function showToast(text) {
+    try {
+      if (!document.documentElement) return;
+      var id = '__smartcourse_speed_toast__';
+      var el = document.getElementById(id);
+      if (!el) {
+        el = document.createElement('div');
+        el.id = id;
+        el.setAttribute('role', 'status');
+        el.style.cssText = [
+          'position:fixed', 'left:50%', 'bottom:24px', 'transform:translateX(-50%)',
+          'z-index:2147483647', 'max-width:80vw', 'padding:10px 16px',
+          'background:rgba(18,22,31,.92)', 'color:#fff',
+          'font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif',
+          'border-radius:10px', 'box-shadow:0 6px 24px rgba(0,0,0,.35)',
+          'pointer-events:none', 'opacity:0', 'transition:opacity .25s ease',
+          'white-space:normal', 'text-align:center'
+        ].join(';');
+        document.documentElement.appendChild(el);
+      }
+      el.textContent = text;
+      el.style.opacity = '1';
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { el.style.opacity = '0'; }, 3200);
+    } catch (e) { /* ignore */ }
+  }
+
   window.addEventListener('message', function (event) {
     if (event.source !== window) return;
     var data = event.data;
     if (!data || data.source !== MSG) return;
     if (data.type === 'config' && data.config) applyConfig(data.config);
+    else if (data.type === 'warn' && typeof data.text === 'string') showToast(data.text);
   });
 
   /* ------------------------------ 事件与兜底 ----------------------------- */

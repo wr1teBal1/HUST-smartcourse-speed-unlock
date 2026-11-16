@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "SmartCourse 倍速解锁",
   "short_name": "SmartCourse 倍速",
-  "version": "1.0.0",
-  "description": "解除 HUST 智慧课程平台/超星泛雅视频的倍速限制：强制倍速、防重置、防检测伪装，支持快捷键。",
+  "version": "1.1.0",
+  "description": "解除 HUST 智慧课程平台/超星泛雅视频的倍速限制：强制倍速、防重置、防检测伪装，支持快捷键与安全上限提醒。",
   "minimum_chrome_version": "111",
   "permissions": ["storage"],
   "icons": {

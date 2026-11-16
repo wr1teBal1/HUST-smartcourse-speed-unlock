@@ -163,3 +163,51 @@ body.is-disabled .rate-panel { opacity: .55; }
 .about b { color: #a3541a; }
 
 .footer { text-align: center; font-size: 10.5px; color: #a2a9b9; padding-top: 2px; }
+
+/* ---------------------- 安全上限提醒 / 确认弹窗 ---------------------- */
+.rate-warning {
+  margin: -3px 0 9px;
+  padding: 7px 9px;
+  border: 1px solid #ffe1b8;
+  border-radius: 8px;
+  background: #fff4e5;
+  color: #a15c00;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.rate-warning[hidden] { display: none; }
+
+.confirm-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(15, 23, 42, .45);
+}
+.confirm-mask[hidden] { display: none; }
+
+.confirm-card {
+  width: 100%;
+  padding: 16px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, .28);
+  animation: confirm-pop .16s ease-out;
+}
+.confirm-card h2 { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+.confirm-card p { font-size: 12px; color: var(--text); line-height: 1.6; }
+.confirm-card .confirm-hint { margin-top: 6px; color: var(--muted); font-size: 11px; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+.btn.ghost { background: #eef1f7; color: #4a5468; }
+.btn.ghost:hover { background: #e3e8f2; }
+.btn.danger { background: #e04a3a; color: #fff; }
+.btn.danger:hover { background: #cc3d2e; }
+
+@keyframes confirm-pop {
+  from { transform: scale(.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}

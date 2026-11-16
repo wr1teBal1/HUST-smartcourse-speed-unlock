@@ -22,6 +22,7 @@
         <span id="rateValue" class="rate-value">2.0</span><span class="rate-unit">×</span>
       </div>
       <p id="statusText" class="status-text">正在检测当前页面…</p>
+      <p id="rateWarning" class="rate-warning" hidden></p>
       <div id="chips" class="chips" role="group" aria-label="倍速档位"></div>
       <div class="custom-row">
         <label for="customRate">自定义倍速</label>
@@ -34,6 +35,10 @@
       <label class="row">
         <span class="row-text"><strong>启用倍速解锁</strong><small>拦截播放器对倍速的重置与限制</small></span>
         <input id="toggleEnabled" class="switch" type="checkbox">
+      </label>
+      <label class="row">
+        <span class="row-text"><strong>安全上限提醒</strong><small>设置超过 2× 时二次确认，并提示任务点风险</small></span>
+        <input id="toggleSafeCap" class="switch" type="checkbox">
       </label>
       <label class="row">
         <span class="row-text"><strong>伪装倍速状态</strong><small>页面读取到的倍速恒为 1.0×，降低被检测概率</small></span>
@@ -58,7 +63,20 @@
     </details>
   </main>
 
-  <footer class="footer">v1.0.0 · 本地扩展，不上传任何数据</footer>
+  <footer class="footer">v1.1.0 · 本地扩展，不上传任何数据</footer>
+
+  <div id="confirmMask" class="confirm-mask" hidden>
+    <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h2 id="confirmTitle">超过平台安全上限</h2>
+      <p id="confirmText"></p>
+      <p class="confirm-hint">平台允许的倍速上限为 2×，更高倍速可能被服务端判定异常，导致任务点/学习进度不被记录甚至被清零。</p>
+      <div class="confirm-actions">
+        <button id="confirmCancel" class="btn ghost" type="button">取消</button>
+        <button id="confirmOk" class="btn danger" type="button">仍然使用</button>
+      </div>
+    </div>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>

@@ -21,7 +21,7 @@
   var MIN_RATE = 0.25;
   var MAX_RATE = 16;
   var STEP = 0.25;
-  var DEFAULTS = { enabled: true, rate: 2, spoof: true, preservesPitch: true };
+  var DEFAULTS = { enabled: true, rate: 2, spoof: true, preservesPitch: true, safeCap: true };
 
   var cfg = normalize(DEFAULTS);
 
@@ -35,13 +35,20 @@
       enabled: raw.enabled !== false,
       rate: rate,
       spoof: raw.spoof !== false,
-      preservesPitch: raw.preservesPitch !== false
+      preservesPitch: raw.preservesPitch !== false,
+      safeCap: raw.safeCap !== false
     };
   }
 
   function postConfig() {
     try {
       window.postMessage({ source: TAG, type: 'config', config: cfg }, '*');
+    } catch (e) { /* ignore */ }
+  }
+
+  function postWarn(text) {
+    try {
+      window.postMessage({ source: TAG, type: 'warn', text: text }, '*');
     } catch (e) { /* ignore */ }
   }
 
@@ -95,6 +102,10 @@
     cfg.rate = next;
     postConfig();
     persist();
+    // 安全上限提醒：快捷键把倍速调过 2× 时，在视频页面内提示一次
+    if (cfg.enabled && cfg.safeCap && cfg.rate > 2) {
+      postWarn('已调整到 ' + cfg.rate + '×，超过平台允许的 2× 上限，任务点记录可能受影响');
+    }
   }, true);
 
   // 弹窗状态查询（有媒体的子框架会回答，避免只看到顶层空页面）

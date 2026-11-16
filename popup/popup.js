@@ -3,12 +3,14 @@
 
 (function () {
   var KEY = 'sc_speed_cfg_v1';
-  var DEFAULTS = { enabled: true, rate: 2, spoof: true, preservesPitch: true };
+  var DEFAULTS = { enabled: true, rate: 2, spoof: true, preservesPitch: true, safeCap: true };
   var RATES = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 6, 8, 12, 16];
   var MIN_RATE = 0.25;
   var MAX_RATE = 16;
+  var SAFE_RATE = 2;
 
   var cfg = normalize(DEFAULTS);
+  var pendingRate = null;
 
   function $(id) { return document.getElementById(id); }
 
@@ -25,7 +27,8 @@
       enabled: raw.enabled !== false,
       rate: clampRate(raw.rate === undefined || raw.rate === null ? DEFAULTS.rate : raw.rate),
       spoof: raw.spoof !== false,
-      preservesPitch: raw.preservesPitch !== false
+      preservesPitch: raw.preservesPitch !== false,
+      safeCap: raw.safeCap !== false
     };
   }
 
@@ -51,8 +54,18 @@
       chips[i].setAttribute('aria-pressed', active ? 'true' : 'false');
     }
     $('toggleEnabled').checked = cfg.enabled;
+    $('toggleSafeCap').checked = cfg.safeCap;
     $('toggleSpoof').checked = cfg.spoof;
     $('togglePitch').checked = cfg.preservesPitch;
+
+    var warning = $('rateWarning');
+    if (cfg.safeCap && cfg.rate > SAFE_RATE) {
+      warning.hidden = false;
+      warning.textContent = '⚠ 当前 ' + formatRate(cfg.rate) + '× 超过平台允许的 2× 上限，任务点记录可能受影响';
+    } else {
+      warning.hidden = true;
+    }
+
     if (document.activeElement !== $('customRate')) {
       $('customRate').value = formatRate(cfg.rate);
     }
@@ -68,7 +81,7 @@
       btn.className = 'chip';
       btn.dataset.rate = String(rate);
       btn.textContent = formatRate(rate) + '×';
-      btn.addEventListener('click', function () { save({ rate: rate }); });
+      btn.addEventListener('click', function () { requestRate(rate); });
       box.appendChild(btn);
     });
   }
@@ -86,6 +99,39 @@
     } catch (e) { /* ignore */ }
   }
 
+  /* 安全上限：设置超过 2× 时先弹窗确认 */
+  function requestRate(rate) {
+    rate = clampRate(rate);
+    if (rate > SAFE_RATE && cfg.safeCap) {
+      openConfirm(rate);
+      return;
+    }
+    save({ rate: rate });
+  }
+
+  function openConfirm(rate) {
+    pendingRate = rate;
+    $('confirmText').textContent = '即将切换到 ' + formatRate(rate) + '×，超过平台允许的 2× 上限。';
+    $('confirmMask').hidden = false;
+    $('confirmOk').focus();
+  }
+
+  function closeConfirm() {
+    pendingRate = null;
+    $('confirmMask').hidden = true;
+  }
+
+  function confirmRate() {
+    var rate = pendingRate;
+    closeConfirm();
+    if (rate !== null) save({ rate: rate });
+  }
+
+  function cancelConfirm() {
+    closeConfirm();
+    render();
+  }
+
   function applyCustom() {
     var raw = $('customRate').value;
     var value = Number(raw);
@@ -93,13 +139,18 @@
       $('customRate').focus();
       return;
     }
-    save({ rate: value });
-    $('customRate').value = formatRate(cfg.rate);
+    requestRate(value);
+    if ($('confirmMask').hidden) {
+      $('customRate').value = formatRate(cfg.rate);
+    }
   }
 
   function bind() {
     $('toggleEnabled').addEventListener('change', function (e) {
       save({ enabled: e.target.checked });
+    });
+    $('toggleSafeCap').addEventListener('change', function (e) {
+      save({ safeCap: e.target.checked });
     });
     $('toggleSpoof').addEventListener('change', function (e) {
       save({ spoof: e.target.checked });
@@ -112,6 +163,21 @@
       if (e.key === 'Enter') {
         e.preventDefault();
         applyCustom();
+      }
+    });
+    $('confirmOk').addEventListener('click', confirmRate);
+    $('confirmCancel').addEventListener('click', cancelConfirm);
+    $('confirmMask').addEventListener('click', function (e) {
+      if (e.target === $('confirmMask')) cancelConfirm();
+    });
+    document.addEventListener('keydown', function (e) {
+      if ($('confirmMask').hidden) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelConfirm();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        confirmRate();
       }
     });
   }

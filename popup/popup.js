@@ -1,0 +1,170 @@
+/* SmartCourse 倍速解锁 — 弹窗逻辑 */
+'use strict';
+
+(function () {
+  var KEY = 'sc_speed_cfg_v1';
+  var DEFAULTS = { enabled: true, rate: 2, spoof: true, preservesPitch: true };
+  var RATES = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 6, 8, 12, 16];
+  var MIN_RATE = 0.25;
+  var MAX_RATE = 16;
+
+  var cfg = normalize(DEFAULTS);
+
+  function $(id) { return document.getElementById(id); }
+
+  function clampRate(value) {
+    var n = Number(value);
+    if (!isFinite(n)) n = DEFAULTS.rate;
+    n = Math.min(MAX_RATE, Math.max(MIN_RATE, n));
+    return Math.round(n * 100) / 100;
+  }
+
+  function normalize(raw) {
+    raw = raw || {};
+    return {
+      enabled: raw.enabled !== false,
+      rate: clampRate(raw.rate === undefined || raw.rate === null ? DEFAULTS.rate : raw.rate),
+      spoof: raw.spoof !== false,
+      preservesPitch: raw.preservesPitch !== false
+    };
+  }
+
+  function formatRate(rate) {
+    var n = Number(rate);
+    if (!isFinite(n)) return '1.0';
+    var trimmed = n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+    return trimmed === String(Math.trunc(n)) ? n.toFixed(1) : trimmed;
+  }
+
+  function setStatus(text) {
+    var el = $('statusText');
+    el.textContent = text;
+    el.title = text;
+  }
+
+  function render() {
+    $('rateValue').textContent = formatRate(cfg.rate);
+    var chips = document.querySelectorAll('.chip');
+    for (var i = 0; i < chips.length; i++) {
+      var active = Math.abs(Number(chips[i].dataset.rate) - cfg.rate) < 0.001;
+      chips[i].classList.toggle('active', active);
+      chips[i].setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+    $('toggleEnabled').checked = cfg.enabled;
+    $('toggleSpoof').checked = cfg.spoof;
+    $('togglePitch').checked = cfg.preservesPitch;
+    if (document.activeElement !== $('customRate')) {
+      $('customRate').value = formatRate(cfg.rate);
+    }
+    document.body.classList.toggle('is-disabled', !cfg.enabled);
+  }
+
+  function buildChips() {
+    var box = $('chips');
+    box.textContent = '';
+    RATES.forEach(function (rate) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip';
+      btn.dataset.rate = String(rate);
+      btn.textContent = formatRate(rate) + '×';
+      btn.addEventListener('click', function () { save({ rate: rate }); });
+      box.appendChild(btn);
+    });
+  }
+
+  function save(patch) {
+    var next = {};
+    for (var key in cfg) next[key] = cfg[key];
+    for (var patchKey in patch) next[patchKey] = patch[patchKey];
+    cfg = normalize(next);
+    render();
+    try {
+      var payload = {};
+      payload[KEY] = cfg;
+      chrome.storage.local.set(payload);
+    } catch (e) { /* ignore */ }
+  }
+
+  function applyCustom() {
+    var raw = $('customRate').value;
+    var value = Number(raw);
+    if (!isFinite(value) || raw === '') {
+      $('customRate').focus();
+      return;
+    }
+    save({ rate: value });
+    $('customRate').value = formatRate(cfg.rate);
+  }
+
+  function bind() {
+    $('toggleEnabled').addEventListener('change', function (e) {
+      save({ enabled: e.target.checked });
+    });
+    $('toggleSpoof').addEventListener('change', function (e) {
+      save({ spoof: e.target.checked });
+    });
+    $('togglePitch').addEventListener('change', function (e) {
+      save({ preservesPitch: e.target.checked });
+    });
+    $('applyCustom').addEventListener('click', applyCustom);
+    $('customRate').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyCustom();
+      }
+    });
+  }
+
+  function refreshStatus() {
+    var dot = $('statusDot');
+    dot.className = 'dot';
+    setStatus('正在检测当前页面…');
+    var query = Promise.resolve([]);
+    try {
+      query = chrome.tabs.query({ active: true, currentWindow: true });
+    } catch (e) { /* ignore */ }
+    query.then(function (tabs) {
+      var tab = tabs && tabs[0];
+      if (!tab) throw new Error('no tab');
+      return chrome.tabs.sendMessage(tab.id, { type: 'SC_SPEED_STATUS' });
+    }).then(function (res) {
+      if (!res || !res.injected) throw new Error('no responder');
+      dot.classList.add('ok');
+      if (res.media > 0) {
+        var real = res.realRate !== null && res.realRate !== undefined
+          ? formatRate(res.realRate) + '×'
+          : '—';
+        setStatus('已接管 ' + res.media + ' 个媒体 · 实际倍速 ' + real);
+      } else {
+        setStatus('已注入当前页，视频在子框架中，播放时自动接管');
+      }
+    }).catch(function () {
+      dot.classList.add('warn');
+      setStatus('当前标签页不在生效范围（请打开课程视频页面）');
+    });
+  }
+
+  function init() {
+    var loaded = Promise.resolve();
+    try {
+      loaded = chrome.storage.local.get(KEY);
+    } catch (e) { /* ignore */ }
+    loaded.then(function (res) {
+      cfg = normalize(res && res[KEY]);
+      buildChips();
+      render();
+      bind();
+      refreshStatus();
+      try {
+        chrome.storage.onChanged.addListener(function (changes, area) {
+          if (area !== 'local' || !changes || !changes[KEY]) return;
+          cfg = normalize(changes[KEY].newValue);
+          render();
+        });
+      } catch (e) { /* ignore */ }
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+})();

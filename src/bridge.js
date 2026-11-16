@@ -4,8 +4,8 @@
  * 职责：
  *   1. 从 chrome.storage.local 读取配置，通过 window.postMessage 下发给
  *      主世界的播放器 Hook；配置改动实时生效（无需刷新页面）；
- *   2. 提供 Alt + ↑ / ↓ 快捷键调节倍速（0.25× 步进，范围 0.25–16×）；
- *   3. 响应弹窗（popup）的状态查询。
+ *   2. 快捷键：Alt + ↑ / ↓ 调节倍速；Alt + R 修复卡住的播放；
+ *   3. 响应弹窗（popup）的状态查询、手动修复请求与诊断信息。
  *
  * 本脚本运行在扩展的隔离世界中，页面脚本无法访问它。
  * ========================================================================= */
@@ -21,7 +21,14 @@
   var MIN_RATE = 0.25;
   var MAX_RATE = 16;
   var STEP = 0.25;
-  var DEFAULTS = { enabled: true, rate: 2, spoof: true, preservesPitch: true, safeCap: true };
+  var DEFAULTS = {
+    enabled: true,
+    rate: 2,
+    spoof: true,
+    preservesPitch: true,
+    safeCap: true,
+    autoRecover: true
+  };
 
   var cfg = normalize(DEFAULTS);
 
@@ -36,7 +43,8 @@
       rate: rate,
       spoof: raw.spoof !== false,
       preservesPitch: raw.preservesPitch !== false,
-      safeCap: raw.safeCap !== false
+      safeCap: raw.safeCap !== false,
+      autoRecover: raw.autoRecover !== false
     };
   }
 
@@ -49,6 +57,12 @@
   function postWarn(text) {
     try {
       window.postMessage({ source: TAG, type: 'warn', text: text }, '*');
+    } catch (e) { /* ignore */ }
+  }
+
+  function postFix() {
+    try {
+      window.postMessage({ source: TAG, type: 'fix' }, '*');
     } catch (e) { /* ignore */ }
   }
 
@@ -86,11 +100,20 @@
     if (data && data.source === TAG && data.type === 'hook-ready') postConfig();
   });
 
-  // Alt + ↑ / ↓：全局调节倍速
+  // Alt + ↑ / ↓：调节倍速；Alt + R：修复卡住的播放
   window.addEventListener('keydown', function (event) {
     if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
     if (event.isComposing) return;
+
+    if (event.key === 'r' || event.key === 'R') {
+      event.preventDefault();
+      event.stopPropagation();
+      try { event.stopImmediatePropagation(); } catch (e) { /* ignore */ }
+      postFix();
+      return;
+    }
+
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
     event.preventDefault();
     event.stopPropagation();
     try { event.stopImmediatePropagation(); } catch (e) { /* ignore */ }
@@ -108,23 +131,53 @@
     }
   }, true);
 
-  // 弹窗状态查询（有媒体的子框架会回答，避免只看到顶层空页面）
+  // 弹窗消息：状态查询 / 手动修复
   try {
     chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
-      if (!message || message.type !== 'SC_SPEED_STATUS') return;
+      if (!message || !message.type) return;
+
+      if (message.type === 'SC_SPEED_FIX') {
+        postFix();
+        sendResponse({ ok: true, frame: window === window.top ? 'top' : 'child' });
+        return;
+      }
+
+      if (message.type !== 'SC_SPEED_STATUS') return;
       var medias;
       try { medias = document.querySelectorAll('video, audio'); } catch (e) { medias = []; }
-      if (!medias.length && window !== window.top) return;
+      if (!medias.length && window !== window.top) return; // 让有媒体的子框架回答
       var realRate = null;
+      var mediaList = [];
       if (medias.length) {
         try { realRate = medias[0].playbackRate; } catch (e) { /* ignore */ }
+        for (var i = 0; i < medias.length && i < 3; i++) {
+          try {
+            var m = medias[i];
+            mediaList.push({
+              tag: m.tagName,
+              paused: m.paused,
+              ended: m.ended,
+              currentTime: Math.round(m.currentTime * 100) / 100,
+              duration: isFinite(m.duration) ? Math.round(m.duration * 100) / 100 : String(m.duration),
+              readyState: m.readyState,
+              networkState: m.networkState,
+              rateReal: m.playbackRate,
+              error: m.error ? { code: m.error.code, message: String(m.error.message || '') } : null
+            });
+          } catch (e) { /* ignore */ }
+        }
       }
       sendResponse({
         injected: true,
         media: medias.length,
         realRate: realRate,
         config: cfg,
-        frame: window === window.top ? 'top' : 'child'
+        frame: window === window.top ? 'top' : 'child',
+        diag: {
+          href: location.href,
+          hidden: document.hidden,
+          media: mediaList
+        }
       });
     });
   } catch (e) { /* ignore */ }

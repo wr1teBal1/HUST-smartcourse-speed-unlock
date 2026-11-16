@@ -3,7 +3,15 @@
 
 (function () {
   var KEY = 'sc_speed_cfg_v1';
-  var DEFAULTS = { enabled: true, rate: 2, spoof: true, preservesPitch: true, safeCap: true };
+  var VERSION = '1.2.0';
+  var DEFAULTS = {
+    enabled: true,
+    rate: 2,
+    spoof: true,
+    preservesPitch: true,
+    safeCap: true,
+    autoRecover: true
+  };
   var RATES = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 6, 8, 12, 16];
   var MIN_RATE = 0.25;
   var MAX_RATE = 16;
@@ -28,7 +36,8 @@
       rate: clampRate(raw.rate === undefined || raw.rate === null ? DEFAULTS.rate : raw.rate),
       spoof: raw.spoof !== false,
       preservesPitch: raw.preservesPitch !== false,
-      safeCap: raw.safeCap !== false
+      safeCap: raw.safeCap !== false,
+      autoRecover: raw.autoRecover !== false
     };
   }
 
@@ -45,6 +54,30 @@
     el.title = text;
   }
 
+  function setTemporaryStatus(text, restoreMs) {
+    var previous = $('statusText').textContent;
+    setStatus(text);
+    setTimeout(function () { setStatus(previous); }, restoreMs || 2600);
+  }
+
+  function activeTab() {
+    var query = Promise.resolve([]);
+    try {
+      query = chrome.tabs.query({ active: true, currentWindow: true });
+    } catch (e) { /* ignore */ }
+    return query.then(function (tabs) {
+      var tab = tabs && tabs[0];
+      if (!tab) throw new Error('no tab');
+      return tab;
+    });
+  }
+
+  function sendToTab(message) {
+    return activeTab().then(function (tab) {
+      return chrome.tabs.sendMessage(tab.id, message);
+    });
+  }
+
   function render() {
     $('rateValue').textContent = formatRate(cfg.rate);
     var chips = document.querySelectorAll('.chip');
@@ -54,6 +87,7 @@
       chips[i].setAttribute('aria-pressed', active ? 'true' : 'false');
     }
     $('toggleEnabled').checked = cfg.enabled;
+    $('toggleAutoRecover').checked = cfg.autoRecover;
     $('toggleSafeCap').checked = cfg.safeCap;
     $('toggleSpoof').checked = cfg.spoof;
     $('togglePitch').checked = cfg.preservesPitch;
@@ -145,9 +179,61 @@
     }
   }
 
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      try {
+        var area = document.createElement('textarea');
+        area.value = text;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(area);
+        if (ok) resolve();
+        else reject(new Error('copy failed'));
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  function fixPlayback() {
+    sendToTab({ type: 'SC_SPEED_FIX' }).then(function () {
+      setTemporaryStatus('已发送修复指令；若仍卡住，请刷新页面');
+    }).catch(function () {
+      setTemporaryStatus('当前页面不可修复（不在生效范围或视频未加载）');
+    });
+  }
+
+  function copyDiagnostics() {
+    sendToTab({ type: 'SC_SPEED_STATUS' }).then(function (res) {
+      var info = {
+        extensionVersion: VERSION,
+        time: new Date().toISOString(),
+        config: cfg,
+        injected: !!(res && res.injected),
+        mediaCount: res ? res.media : null,
+        realRate: res ? res.realRate : null,
+        page: res && res.diag ? res.diag : null
+      };
+      return copyText(JSON.stringify(info, null, 2)).then(function () {
+        setTemporaryStatus('诊断信息已复制到剪贴板');
+      });
+    }).catch(function () {
+      setTemporaryStatus('复制失败：当前页面不在生效范围');
+    });
+  }
+
   function bind() {
     $('toggleEnabled').addEventListener('change', function (e) {
       save({ enabled: e.target.checked });
+    });
+    $('toggleAutoRecover').addEventListener('change', function (e) {
+      save({ autoRecover: e.target.checked });
     });
     $('toggleSafeCap').addEventListener('change', function (e) {
       save({ safeCap: e.target.checked });
@@ -165,6 +251,8 @@
         applyCustom();
       }
     });
+    $('fixPlay').addEventListener('click', fixPlayback);
+    $('copyDiag').addEventListener('click', copyDiagnostics);
     $('confirmOk').addEventListener('click', confirmRate);
     $('confirmCancel').addEventListener('click', cancelConfirm);
     $('confirmMask').addEventListener('click', function (e) {
@@ -186,13 +274,7 @@
     var dot = $('statusDot');
     dot.className = 'dot';
     setStatus('正在检测当前页面…');
-    var query = Promise.resolve([]);
-    try {
-      query = chrome.tabs.query({ active: true, currentWindow: true });
-    } catch (e) { /* ignore */ }
-    query.then(function (tabs) {
-      var tab = tabs && tabs[0];
-      if (!tab) throw new Error('no tab');
+    activeTab().then(function (tab) {
       return chrome.tabs.sendMessage(tab.id, { type: 'SC_SPEED_STATUS' });
     }).then(function (res) {
       if (!res || !res.injected) throw new Error('no responder');

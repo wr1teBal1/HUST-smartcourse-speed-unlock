@@ -211,3 +211,21 @@ body.is-disabled .rate-panel { opacity: .55; }
   from { transform: scale(.96); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
 }
+
+/* ---------------------- 播放修复入口 ---------------------- */
+.fix-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.btn.small { height: 28px; padding: 0 10px; font-size: 11.5px; }
+.fix-hint { font-size: 11px; color: var(--muted); }
+.fix-hint kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 2px 5px;
+  border: 1px solid #d9dfeb;
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: #fff;
+  color: var(--text);
+  font: 11px/1.2 inherit;
+  text-align: center;
+}
+.about .btn { margin-top: 8px; }

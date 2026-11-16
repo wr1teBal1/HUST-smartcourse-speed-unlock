@@ -29,12 +29,20 @@
         <input id="customRate" type="number" min="0.25" max="16" step="0.25" inputmode="decimal" placeholder="0.25–16">
         <button id="applyCustom" class="btn" type="button">应用</button>
       </div>
+      <div class="fix-row">
+        <button id="fixPlay" class="btn ghost small" type="button">修复卡住的播放</button>
+        <span class="fix-hint">快捷键 <kbd>Alt</kbd>+<kbd>R</kbd></span>
+      </div>
     </section>
 
     <section class="panel rows">
       <label class="row">
         <span class="row-text"><strong>启用倍速解锁</strong><small>拦截播放器对倍速的重置与限制</small></span>
         <input id="toggleEnabled" class="switch" type="checkbox">
+      </label>
+      <label class="row">
+        <span class="row-text"><strong>暂停/切屏自动恢复</strong><small>播放按钮点了没反应、暂停后继续卡住时自动尝试恢复</small></span>
+        <input id="toggleAutoRecover" class="switch" type="checkbox">
       </label>
       <label class="row">
         <span class="row-text"><strong>安全上限提醒</strong><small>设置超过 2× 时二次确认，并提示任务点风险</small></span>
@@ -60,10 +68,11 @@
       <p>仅在 <code>*.hust.edu.cn</code>、<code>*.chaoxing.com</code>、<code>*.xuexitong.com</code> 页面生效。</p>
       <p>本扩展只解除浏览器端的倍速控制，<b>不会修改课程进度数据</b>。平台自身允许的倍速上限为 2×，建议日常使用不超过 2×；若平台在服务端校验播放速度，观看进度可能不被记录。</p>
       <p>请遵守课程与学校规定，仅用于个人学习加速。</p>
+      <button id="copyDiag" class="btn ghost small" type="button">复制诊断信息（反馈问题用）</button>
     </details>
   </main>
 
-  <footer class="footer">v1.1.0 · 本地扩展，不上传任何数据</footer>
+  <footer class="footer">v1.2.0 · 本地扩展，不上传任何数据</footer>
 
   <div id="confirmMask" class="confirm-mask" hidden>
     <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">

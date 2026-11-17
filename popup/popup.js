@@ -3,7 +3,7 @@
 
 (function () {
   var KEY = 'sc_speed_cfg_v1';
-  var VERSION = '1.2.0';
+  var VERSION = '1.2.1';
   var DEFAULTS = {
     enabled: true,
     rate: 2,
@@ -218,7 +218,8 @@
         injected: !!(res && res.injected),
         mediaCount: res ? res.media : null,
         realRate: res ? res.realRate : null,
-        page: res && res.diag ? res.diag : null
+        page: res && res.diag ? res.diag : null,
+        player: res && res.mainDiag ? res.mainDiag : null
       };
       return copyText(JSON.stringify(info, null, 2)).then(function () {
         setTemporaryStatus('诊断信息已复制到剪贴板');
@@ -279,13 +280,14 @@
     }).then(function (res) {
       if (!res || !res.injected) throw new Error('no responder');
       dot.classList.add('ok');
-      if (res.media > 0) {
+      var usefulCount = res.diag && typeof res.diag.usefulCount === 'number' ? res.diag.usefulCount : res.media;
+      if (usefulCount > 0) {
         var real = res.realRate !== null && res.realRate !== undefined
           ? formatRate(res.realRate) + '×'
           : '—';
-        setStatus('已接管 ' + res.media + ' 个媒体 · 实际倍速 ' + real);
+        setStatus('已接管 ' + usefulCount + ' 个媒体 · 实际倍速 ' + real);
       } else {
-        setStatus('已注入当前页，视频在子框架中，播放时自动接管');
+        setStatus('已注入当前页，等待视频加载（视频也可能在子框架中）');
       }
     }).catch(function () {
       dot.classList.add('warn');

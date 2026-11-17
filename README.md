@@ -50,11 +50,13 @@ Chrome / Edge 扩展（Manifest V3），解除 **HUST 智慧课程平台**（`sm
 
 ## 三、适用范围
 
-扩展只在以下域名的页面与 iframe 中注入：
+扩展只在以下页面注入（v1.2.1 起收窄范围，**其他 HUST / 超星页面不再受影响**）：
 
-- `*.hust.edu.cn`（智慧课程平台本体）
-- `*.chaoxing.com`（超星泛雅 / 视频播放器 iframe，例如 `mooc1-1.chaoxing.com`）
-- `*.xuexitong.com`（学习通相关）
+- `smartcourse.hust.edu.cn`（HUST 智慧课程平台本体与播放器 iframe）
+- `*.chaoxing.com/ananas/modules/*`（超星播放器模块页，跨域播放器时）
+- `*.xuexitong.com/ananas/modules/*`（学习通播放器模块页）
+
+此外，扩展只会接管“真正的课程媒体”：**跳过空 src 元素、非播放器页里的 `<audio>`（知识卡片语音、提示音等）和少于 15 秒的短音效**；后台标签页不做巡检，尽量减少对浏览器音频/CPU 的干扰。
 
 如果学校平台之后更换了播放器域名，可自行在 `manifest.json` 的 `content_scripts[].matches` 中追加一条 `"*://*.新域名/*"`，重新加载扩展即可。
 
@@ -62,7 +64,7 @@ Chrome / Edge 扩展（Manifest V3），解除 **HUST 智慧课程平台**（`sm
 
 ## 四、工作原理（技术说明）
 
-1. **MAIN world 预注入**：扩展以 `run_at: document_start`、`world: "MAIN"`、`all_frames: true` 把 `src/main-world.js` 注入到页面（含跨域 iframe、about:blank/blob 子框架），执行时机早于页面任何脚本。
+1. **MAIN world 预注入**：扩展以 `run_at: document_start`、`world: "MAIN"`、`all_frames: true` 把 `src/main-world.js` 注入到页面（含真实 URL 的跨域播放器 iframe），执行时机早于页面任何脚本。
 2. **属性接管**：立即重定义 `HTMLMediaElement.prototype.playbackRate` / `defaultPlaybackRate` 的 getter/setter：
    - 页面写入任何倍速 → 被重定向为扩展配置的倍速（播放器的“改回 1.0”逻辑失效）；
    - 页面读取倍速 → 开启伪装时恒返回 `1.0`（纯前端防倍速检测失效），关闭伪装时返回真实值。
@@ -70,7 +72,8 @@ Chrome / Edge 扩展（Manifest V3），解除 **HUST 智慧课程平台**（`sm
 4. **隔离世界桥接**：`src/bridge.js` 在扩展隔离世界运行，负责读写 `chrome.storage.local`、全局快捷键，并通过 `window.postMessage` 与主世界 Hook 通信。因此修改配置可实时同步到所有已打开页面与 iframe。
 5. **播放恢复助手（v1.2.0）**：包装 `play()/pause()` 并跟踪播放进度；当“点击播放控件后仍未播放”“play() 调用后仍卡在暂停”“播放中进度长时间不动”时，**轻推 0.2s 播放位置后直接调用原生 `play()`** 尝试恢复——绕开播放器卡住的状态机，但会尊重用户主动 `pause()`（pause 之后的暂停不会被抢回）。也可用 `Alt+R` / 弹窗按钮手动修复。
 6. **诊断**：MAIN world 暴露 `window.__SMARTCOURSE_SPEED_DIAG__`（状态快照 + 最近事件），弹窗「复制诊断信息」会打包配置、iframe 媒体状态与页面地址，便于反馈问题。
-7. **配置项**：`chrome.storage.local["sc_speed_cfg_v1"] = { enabled, rate, spoof, preservesPitch, safeCap, autoRecover }`，默认 `{ enabled: true, rate: 2, spoof: true, preservesPitch: true, safeCap: true, autoRecover: true }`。
+7. **低干扰（v1.2.1）**：生效范围收窄到课程平台与超星播放器模块页；只接管真正的课程媒体（跳过空源元素、非播放器页音频、少于 15 秒的短音效）；后台标签页跳过巡检/重试/自动恢复；`preservesPitch` 用 WeakMap 按元素缓存，只在需要时改变。
+8. **配置项**：`chrome.storage.local["sc_speed_cfg_v1"] = { enabled, rate, spoof, preservesPitch, safeCap, autoRecover }`，默认 `{ enabled: true, rate: 2, spoof: true, preservesPitch: true, safeCap: true, autoRecover: true }`。
 
 ### HUST 播放器实测（2026-11 静态分析，公开资源）
 
@@ -119,6 +122,16 @@ Chrome / Edge 扩展（Manifest V3），解除 **HUST 智慧课程平台**（`sm
 **Q7：如何卸载？**
 - `chrome://extensions/` → 找到本扩展 → 移除，然后刷新课程页面即可恢复平台原始行为。
 
+**Q8：其他网站（B 站 / YouTube / 音乐网站）音调变低、有破音？**
+- 本扩展**不会注入**到这些网站（生效范围只有 HUST 课程平台与超星播放器模块页），所以理论上不会直接修改它们的播放器。出现这种情况更可能是**浏览器共享音频服务/输出设备状态**被某个页面（或其它软件）带偏了——重启浏览器能恢复也符合这一特征。
+- 排查步骤：
+  1. 问题出现时先**不要重启**，去 `chrome://extensions/` 临时禁用本扩展，看该网站音调是否立即恢复；
+  2. 关闭所有 HUST / 超星 / 学习通相关标签页，看是否恢复；
+  3. 重启浏览器后**先只开该网站**（不打开课程页），确认正常后再打开课程页，看问题何时出现；
+  4. 打开 `chrome://media-internals`，找到该网站的播放器，看 `playback rate` 是否仍为 1（若显示 0.9x/0.8x 说明是页面侧速率被改，若为 1 说明是音频输出侧问题）；
+  5. 如果是蓝牙耳机，检查是否被切到“通话/Hands-Free”模式（会明显变闷、变调、破音），换有线/内置扬声器对比。
+- 如排查后确认与扩展有关，请用弹窗「复制诊断信息」反馈（尽量在**课程视频播放页**复制）。v1.2.1 起诊断信息会包含播放器帧的**倍速变化（rate.change）与 seek 历史**，可用来判断是倍速被改还是音频输出侧问题。
+
 ---
 
 ## 六、文件结构
@@ -151,30 +164,30 @@ smartcourse-speed-unlock/
 - 倍速上限受浏览器限制，最高 16×；超过约 2–4× 后音频可能被浏览器静音或压缩，属正常现象；
 - 平台前端大改版后可能失效，届时需按新的播放器结构小幅调整 Hook。
 
-## 九、验证记录（2026-11-16）
+## 九、验证记录（2026-11-17）
 
-在 Windows + **Chrome 157.0.8103.51** 上做了独立自动化验收：通过 CDP `Extensions.loadUnpacked` 加载**真实的未打包扩展**（Chrome 157 起命令行 `--load-extension` 被官方禁用，但用户手动「加载已解压的扩展程序」不受影响），并用 `--host-resolver-rules` 把 `smartcourse.hust.edu.cn`、`jwc.hust.edu.cn` 映射到本地测试服务器（**全部流量在本机，未访问真实课程平台、未登录**）。
+在 Windows + **Chrome 157.0.8103.51** 上做了独立自动化验收：通过 CDP `Extensions.loadUnpacked` 加载**真实的未打包扩展**（Chrome 157 起命令行 `--load-extension` 被官方禁用，但用户手动「加载已解压的扩展程序」不受影响），并用 `--host-resolver-rules` 把 `smartcourse.hust.edu.cn`、`mooc1.chaoxing.com` 等映射到本地测试服务器（**全部流量在本机，未访问真实课程平台、未登录**）。
 
-- **v1.2.0 验收：46/46 项 PASS，0 FAIL**（播放恢复助手 11 项 R1–R10 + 安全上限 9 项 F0–F8 + 既有行为 26 项）
-- v1.1.0：35/35 PASS；v1.0.0：25/25 PASS
+- **v1.2.1 验收：59/59 项 PASS，0 FAIL**（低干扰/诊断 S1–S9 共 13 项 + v1.2.0 全量回归 46 项）
+- v1.2.0：46/46；v1.1.0：35/35；v1.0.0：25/25
 
 关键证据：
 
-- **播放恢复**：真实点击播放控件（页面处理器为空）后 **1604ms** 自动恢复播放；`play()` 无效 **2412ms** 后重试恢复；播放中进度冻结 **4551ms** 检测并恢复；`Alt+R` 与弹窗「修复卡住的播放」均生效（事件含 `manual.fix`）；
-- **尊重用户暂停**：播放中页面调用 `pause()` 后 3.5s 仍保持暂停、进度冻结，不会被抢回；
-- **开关生效**：关闭「暂停/切屏自动恢复」后不再自动恢复，手动修复仍有效；重新开启后恢复自动行为；
-- 默认（storage 为空）真实倍速 2.0×，页面脚本读取为 1.0×；
-- 页面写 `playbackRate=3` / `defaultPlaybackRate=0.5`、`ratechange`+250ms 循环重置、`defaultPlaybackRate=1 + load()`：真实倍速始终/立即恢复为配置值；
-- 页面绕过 Hook 直接改属性、甚至篡改 Hook 本身：≤180ms 自动重新接管；
-- 动态插入的 `<audio>/<video>`、跨域 iframe（`jwc.hust.edu.cn`）内的媒体同样生效，iframe 内 `currentTime` 斜率 ≈2（独立于倍速读取的验证通道）；
-- 安全上限提醒 9 项、快捷键、实时配置、10 秒稳定性（`ratechange` 增量 0）全部通过；恢复助手运行期间无未捕获异常。
+- **加载修复**：此前 manifest 的 `match_origin_as_fallback` 与带路径 matches 不兼容会被 Chrome 拒绝加载，v1.2.1 已移除并验证 `Extensions.loadUnpacked` 成功；
+- **范围收窄**：仅 `smartcourse.hust.edu.cn` 任意路径、`*.chaoxing.com` / `*.xuexitong.com` 的 `/ananas/modules/*` 注入；`lib.hust.edu.cn`、`chaoxing.com` 普通路径不注入；
+- **媒体过滤**：非播放器页的空/短/长 audio 真实倍速均为 1，同页 video 为 2×；播放器模块页长 audio 与 video 均生效；页面读取倍速仍为 1.0；
+- **后台低干扰**：hidden 时把真实倍速改回 1，2 秒内 20 次采样均保持 1（不恢复），hidden 期间进度冻结不触发 stall/recover；恢复可见后约 1ms 补回 2×；
+- **保持音调**：`preservesPitch=false` 时真实音调开关为 `false`、`true` 时恢复 `true`（实时生效）；
+- **诊断**：顶层只有空 audio 时延迟 ~350ms 回答；iframe 内真实 video 优先回答（`mainDiag` 含 `hasSrc=true`、倍速变化与 seek 历史）；
+- **回归**：v1.2.0 的 46 项（播放恢复、安全上限、倍速/伪装/iframe/稳定性等）全部重跑 PASS；恢复助手与诊断运行期间无未捕获异常。
 
-完整验收报告：**[docs/verification-report.md](docs/verification-report.md)**（v1.2.0）；历史报告见 [docs/verification-report-v1.1.0.md](docs/verification-report-v1.1.0.md)、[docs/verification-report-v1.0.0.md](docs/verification-report-v1.0.0.md)。测试工程未随仓库分发。**未验证项**：需统一认证的真实课程页最终效果、平台服务端的进度判定；真实“切屏/最小化”在 headless 环境无法完全复现，采用扩展自身三条可复现触发路径（点击播放控件 / play 无效 / 进度冻结）验证。
+完整验收报告：**[docs/verification-report.md](docs/verification-report.md)**（v1.2.1）；历史报告见 [docs/verification-report-v1.2.0.md](docs/verification-report-v1.2.0.md)、[docs/verification-report-v1.1.0.md](docs/verification-report-v1.1.0.md)、[docs/verification-report-v1.0.0.md](docs/verification-report-v1.0.0.md)。测试工程未随仓库分发。**未验证项**：需统一认证的真实课程页最终效果、平台服务端的进度判定；真实“切屏/最小化”与真实音频输出侧问题无法在 headless 完全复现。
 
 ---
 
 ## 十、更新记录
 
+- **v1.2.1**（2026-11-17）：低干扰版——生效范围收窄到课程平台与超星播放器模块页；只接管真正的课程媒体（跳过空 audio、非播放器页音频、短音效）；后台标签页停止巡检与事件强制；修复「保持音调」开关关闭不生效的问题；诊断信息优先展示真实视频帧并记录倍速变化/seek 历史；修复 Chrome 加载校验问题。
 - **v1.2.0**（2026-11-16）：新增「播放恢复助手」——切屏/最小化暂停后回来播放按钮无响应、暂停后继续卡住、播放中卡死时自动尝试恢复；尊重用户主动暂停；新增 `Alt+R` 与弹窗「修复卡住的播放」；新增诊断信息导出。
 - **v1.1.0**（2026-11-16）：新增「安全上限提醒」——设置超过 2× 时弹窗二次确认、常驻风险提示，快捷键超 2× 时页面内轻提示；默认开启，可在弹窗关闭。
 - **v1.0.0**（2026-11-16）：首个版本：强制倍速、防重置、伪装倍速状态、快捷键、配置实时生效。

@@ -2,10 +2,12 @@
   "manifest_version": 3,
   "name": "SmartCourse 倍速解锁",
   "short_name": "SmartCourse 倍速",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "解除 HUST 智慧课程平台/超星泛雅视频的倍速限制：强制倍速、防重置、防检测伪装、安全上限提醒与播放恢复。",
   "minimum_chrome_version": "111",
-  "permissions": ["storage"],
+  "permissions": [
+    "storage"
+  ],
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -26,27 +28,27 @@
     {
       "matches": [
         "*://smartcourse.hust.edu.cn/*",
-        "*://*.hust.edu.cn/*",
-        "*://*.chaoxing.com/*",
-        "*://*.xuexitong.com/*"
+        "*://*.chaoxing.com/ananas/modules/*",
+        "*://*.xuexitong.com/ananas/modules/*"
       ],
       "all_frames": true,
-      "match_origin_as_fallback": true,
       "run_at": "document_start",
       "world": "MAIN",
-      "js": ["src/main-world.js"]
+      "js": [
+        "src/main-world.js"
+      ]
     },
     {
       "matches": [
         "*://smartcourse.hust.edu.cn/*",
-        "*://*.hust.edu.cn/*",
-        "*://*.chaoxing.com/*",
-        "*://*.xuexitong.com/*"
+        "*://*.chaoxing.com/ananas/modules/*",
+        "*://*.xuexitong.com/ananas/modules/*"
       ],
       "all_frames": true,
-      "match_origin_as_fallback": true,
       "run_at": "document_start",
-      "js": ["src/bridge.js"]
+      "js": [
+        "src/bridge.js"
+      ]
     }
   ]
 }

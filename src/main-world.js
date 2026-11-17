@@ -69,8 +69,37 @@
   function nowMs() { return Date.now(); }
   function round2(n) { return Math.round(n * 100) / 100; }
 
+  function isPlayerModulePage() {
+    try { return location.pathname.indexOf('/ananas/modules/') >= 0; } catch (e) { return false; }
+  }
+
+  function allMedia() {
+    try { return document.querySelectorAll('video, audio'); } catch (e) { return []; }
+  }
+
+  // 只接管“真正的媒体”：
+  //  - 跳过没有源的元素（平台占位/空 audio）；
+  //  - 非播放器页面里跳过 <audio>（知识卡片语音、提示音等会被误加速/破音）；
+  //  - 跳过过短的音效（< 15s）。
+  function isInScopeMedia(el) {
+    if (!el || !(el instanceof HTMLMediaElement)) return false;
+    try {
+      if (!el.currentSrc && !el.src) return false;
+      if (el.tagName === 'AUDIO' && !isPlayerModulePage()) return false;
+      var dur = el.duration;
+      if (isFinite(dur) && dur > 0 && dur < 15) return false;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function firstMedia() {
-    try { return document.querySelector('video, audio'); } catch (e) { return null; }
+    var list = allMedia();
+    for (var i = 0; i < list.length; i++) {
+      if (isInScopeMedia(list[i])) return list[i];
+    }
+    return null;
   }
 
   function mediaSnapshot(el) {
@@ -80,6 +109,9 @@
       return {
         tag: media.tagName,
         id: media.id || '',
+        hasSrc: !!(media.currentSrc || media.src),
+        inScope: isInScopeMedia(media),
+        playerModulePage: isPlayerModulePage(),
         paused: media.paused,
         ended: media.ended,
         readyState: media.readyState,
@@ -88,6 +120,9 @@
         duration: isFinite(media.duration) ? round2(media.duration) : String(media.duration),
         rateReal: realGetRate.call(media),
         rateVisible: media.playbackRate,
+        preservesPitch: !!media.preservesPitch,
+        muted: !!media.muted,
+        volume: round2(media.volume),
         error: media.error ? { code: media.error.code, message: String(media.error.message || '') } : null
       };
     } catch (e) {
@@ -199,6 +234,7 @@
     if (state.enabled && state.autoRecover) {
       setTimeout(function () {
         try {
+          if (document.hidden) return;
           if (!el.paused || el.ended) return;
           if (lastPauseCallAt >= lastPlayCallAt) return; // 页面之后主动暂停，尊重
           attemptRecover(el, 'play-ineffective');
@@ -206,6 +242,7 @@
       }, 2400);
     }
 
+    postDiag(true);
     return promise;
   }
 
@@ -213,6 +250,7 @@
     lastPauseCallAt = nowMs();
     recoveryAttempts = 0;
     record('pause.call');
+    postDiag(true);
     return realPause.apply(this, arguments);
   }
 
@@ -249,12 +287,23 @@
 
   /* ------------------------------ 强制倍速 ------------------------------ */
 
+  var pitchState = typeof WeakMap === 'function' ? new WeakMap() : null;
+
+  function applyPitch(el) {
+    var wanted = !!state.preservesPitch;
+    if (pitchState) {
+      if (pitchState.has(el) && pitchState.get(el) === wanted) return;
+      try { el.preservesPitch = wanted; } catch (e) { /* ignore */ }
+      pitchState.set(el, wanted);
+    } else if (wanted) {
+      try { el.preservesPitch = true; } catch (e) { /* ignore */ }
+    }
+  }
+
   function forceMedia(el) {
-    if (!state.enabled || !el || !(el instanceof HTMLMediaElement)) return;
+    if (!state.enabled || !isInScopeMedia(el)) return;
     try {
-      if (state.preservesPitch && 'preservesPitch' in el) {
-        try { el.preservesPitch = true; } catch (e) { /* ignore */ }
-      }
+      applyPitch(el);
       var real = realGetRate.call(el);
       if (Math.abs(real - state.rate) > 0.001) realSetRate.call(el, state.rate);
     } catch (e) { /* ignore */ }
@@ -281,14 +330,15 @@
   /* --------------------------- 播放恢复助手 --------------------------- */
 
   function attemptRecover(el, reason, force) {
-    if (!el || el.ended) return false;
-    if (!force && (!state.enabled || !state.autoRecover)) return false;
+    if (!el || el.ended || !isInScopeMedia(el)) return false;
+    if (!force && (document.hidden || !state.enabled || !state.autoRecover)) return false;
     var t = nowMs();
     if (!force && t - lastRecoveryAt < 1500) return false;
     if (!force && recoveryAttempts >= 3) return false;
     recoveryAttempts++;
     lastRecoveryAt = t;
     record('recover.attempt', { reason: reason, media: mediaSnapshot(el) });
+    postDiag(true);
 
     try {
       var dur = el.duration;
@@ -319,6 +369,7 @@
       } else {
         record('recover.maybe-failed', { reason: reason, media: mediaSnapshot(media) });
       }
+      postDiag(true);
     }, 900);
 
     return called;
@@ -363,6 +414,33 @@
     post({ source: MSG, type: 'hook-ready' });
   }
 
+  // 把诊断快照同步给隔离世界的 bridge.js，弹窗「复制诊断信息」时能带上播放器帧的真实倍速历史
+  var lastDiagPostAt = 0;
+  function postDiag(force) {
+    var t = nowMs();
+    if (!force && t - lastDiagPostAt < 3000) return;
+    lastDiagPostAt = t;
+    try {
+      window.postMessage({
+        source: MSG,
+        type: 'diag',
+        data: {
+          url: location.href,
+          hidden: document.hidden,
+          config: {
+            enabled: state.enabled,
+            rate: state.rate,
+            spoof: state.spoof,
+            preservesPitch: state.preservesPitch,
+            autoRecover: state.autoRecover
+          },
+          media: mediaSnapshot(),
+          events: EVENTS.slice(-60)
+        }
+      }, '*');
+    } catch (e) { /* ignore */ }
+  }
+
   /* 页面内轻提示（用于快捷键把倍速调过 2×、手动修复播放等） */
   var toastTimer = null;
   function showToast(text) {
@@ -398,6 +476,7 @@
     if (!data || data.source !== MSG) return;
     if (data.type === 'config' && data.config) {
       applyConfig(data.config);
+      setTimeout(function () { postDiag(true); }, 150);
     } else if (data.type === 'warn' && typeof data.text === 'string') {
       showToast(data.text);
     } else if (data.type === 'fix') {
@@ -406,6 +485,7 @@
         attemptRecover(media, 'manual-fix', true);
         showToast('已尝试恢复播放');
         record('manual.fix');
+        postDiag(true);
       } else {
         showToast('未找到视频元素');
       }
@@ -419,14 +499,28 @@
 
   function onMediaEvent(event) {
     var target = event.target;
-    if (target instanceof HTMLMediaElement) {
-      if (event.type === 'playing') {
-        lastProgressAt = nowMs();
-        lastProgressTime = target.currentTime;
-        recoveryAttempts = 0;
-      }
-      forceMedia(target);
+    if (!(target instanceof HTMLMediaElement)) return;
+    if (event.type === 'playing') {
+      lastProgressAt = nowMs();
+      lastProgressTime = target.currentTime;
+      recoveryAttempts = 0;
+    } else if (event.type === 'ratechange') {
+      // 记录真实的倍速变化历史，便于诊断“音调/速度异常”
+      record('rate.change', {
+        real: realGetRate.call(target),
+        visible: target.playbackRate,
+        pitch: !!target.preservesPitch
+      });
+      postDiag(true);
+    } else if (event.type === 'seeking' || event.type === 'seeked') {
+      record('seek.' + event.type, {
+        ct: round2(target.currentTime),
+        real: realGetRate.call(target)
+      });
     }
+    // 后台标签页不做任何强制/恢复动作（事件路径也不做），避免干扰其它标签页音频；
+    // 回到前台时会统一补一次 forceAll。
+    if (!document.hidden) forceMedia(target);
   }
   for (var i = 0; i < MEDIA_EVENTS.length; i++) {
     document.addEventListener(MEDIA_EVENTS[i], onMediaEvent, true);
@@ -457,6 +551,7 @@
 
   try {
     var observer = new MutationObserver(function (records) {
+      if (document.hidden) return; // 后台标签页不做扫描，避免无谓 CPU/媒体操作
       for (var r = 0; r < records.length; r++) {
         var added = records[r].addedNodes;
         for (var a = 0; a < added.length; a++) {
@@ -470,12 +565,26 @@
     observer.observe(document, { childList: true, subtree: true });
   } catch (e) { /* ignore */ }
 
+  // 回到前台时补齐一次（后台期间不做巡检）
+  document.addEventListener('visibilitychange', function () {
+    try {
+      if (!document.hidden) {
+        record('visibility.visible');
+        if (state.enabled) forceAll(document);
+      } else {
+        record('visibility.hidden');
+      }
+    } catch (e) { /* ignore */ }
+  });
+
   // 兜底：页面若重新定义/删除属性，或绕过事件偷偷重置倍速，周期性恢复；
-  // 同时检测“播放中却长时间没有进度”的卡死状态并尝试恢复
+  // 同时检测“播放中却长时间没有进度”的卡死状态并尝试恢复。
+  // 注意：后台标签页直接跳过，避免后台媒体操作影响其它标签页的音频状态。
   setInterval(function () {
     ensureHook();
-    if (!state.enabled) return;
+    if (document.hidden || !state.enabled) return;
     forceAll(document);
+    postDiag(false);
     if (!state.autoRecover) return;
     try {
       var media = firstMedia();
@@ -494,6 +603,7 @@
   [60, 300, 1000, 2500].forEach(function (delay) {
     setTimeout(announceReady, delay);
   });
+  setTimeout(function () { postDiag(true); }, 1200);
   document.addEventListener('DOMContentLoaded', function () {
     forceAll(document);
     announceReady();

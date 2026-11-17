@@ -93,11 +93,17 @@
     });
   } catch (e) { /* ignore */ }
 
-  // 主世界 Hook 就绪后（或启动竞态时）主动下发配置
+  // 主世界 Hook 就绪后（或启动竞态时）主动下发配置；同时缓存播放器帧上报的诊断快照
+  var lastMainDiag = null;
   window.addEventListener('message', function (event) {
     if (event.source !== window) return;
     var data = event.data;
-    if (data && data.source === TAG && data.type === 'hook-ready') postConfig();
+    if (!data || data.source !== TAG) return;
+    if (data.type === 'hook-ready') {
+      postConfig();
+    } else if (data.type === 'diag' && data.data) {
+      lastMainDiag = data.data;
+    }
   });
 
   // Alt + ↑ / ↓：调节倍速；Alt + R：修复卡住的播放
@@ -143,42 +149,62 @@
       }
 
       if (message.type !== 'SC_SPEED_STATUS') return;
+
       var medias;
       try { medias = document.querySelectorAll('video, audio'); } catch (e) { medias = []; }
-      if (!medias.length && window !== window.top) return; // 让有媒体的子框架回答
-      var realRate = null;
       var mediaList = [];
-      if (medias.length) {
-        try { realRate = medias[0].playbackRate; } catch (e) { /* ignore */ }
-        for (var i = 0; i < medias.length && i < 3; i++) {
-          try {
-            var m = medias[i];
-            mediaList.push({
-              tag: m.tagName,
-              paused: m.paused,
-              ended: m.ended,
-              currentTime: Math.round(m.currentTime * 100) / 100,
-              duration: isFinite(m.duration) ? Math.round(m.duration * 100) / 100 : String(m.duration),
-              readyState: m.readyState,
-              networkState: m.networkState,
-              rateReal: m.playbackRate,
-              error: m.error ? { code: m.error.code, message: String(m.error.message || '') } : null
-            });
-          } catch (e) { /* ignore */ }
-        }
+      for (var i = 0; i < medias.length && i < 5; i++) {
+        try {
+          var m = medias[i];
+          var hasSrc = !!(m.currentSrc || m.src);
+          mediaList.push({
+            tag: m.tagName,
+            id: m.id || '',
+            hasSrc: hasSrc,
+            paused: m.paused,
+            ended: m.ended,
+            currentTime: Math.round(m.currentTime * 100) / 100,
+            duration: isFinite(m.duration) ? Math.round(m.duration * 100) / 100 : String(m.duration),
+            readyState: m.readyState,
+            networkState: m.networkState,
+            rateReal: m.playbackRate,
+            error: m.error ? { code: m.error.code, message: String(m.error.message || '') } : null
+          });
+        } catch (e) { /* ignore */ }
       }
-      sendResponse({
+      var useful = mediaList.filter(function (item) {
+        return item.hasSrc && (item.tag === 'VIDEO' || (typeof item.duration === 'number' && item.duration > 15));
+      });
+      var realRate = null;
+      if (useful.length) realRate = useful[0].rateReal;
+      else if (mediaList.length) realRate = mediaList[0].rateReal;
+
+      var payload = {
         injected: true,
-        media: medias.length,
+        media: useful.length || mediaList.length,
         realRate: realRate,
         config: cfg,
         frame: window === window.top ? 'top' : 'child',
+        mainDiag: lastMainDiag,
         diag: {
           href: location.href,
           hidden: document.hidden,
+          usefulCount: useful.length,
           media: mediaList
         }
-      });
+      };
+
+      // 有真正媒体的帧直接回答；没有真正媒体的帧（常见于顶层页面的空 <audio>/提示音）
+      // 延迟回答，让子框架里真正的视频播放器先回答，弹窗状态与诊断信息才准确。
+      if (useful.length) {
+        sendResponse(payload);
+        return;
+      }
+      if (window !== window.top) return;
+      setTimeout(function () {
+        try { sendResponse(payload); } catch (e) { /* ignore */ }
+      }, 350);
+      return true; // 保持消息通道到延迟回答
     });
   } catch (e) { /* ignore */ }
 
